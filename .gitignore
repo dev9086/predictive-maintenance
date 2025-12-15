@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# PyTest cache
+.pytest_cache/
+
+# VSCode and IDE
+.vscode/
+.idea/
+
+# Environment variables
+.env
+.env.*
+
+# Data and model artifacts
+/data/
+/models/
+*.joblib
+*.pkl
+*.h5
+
+# Notebooks and reports (optional)
+notebooks/
+reports/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
