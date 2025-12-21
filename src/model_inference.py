@@ -1,29 +1,30 @@
 """
-Model Inference API - FIXED VERSION
-Uses realistic physics-based predictions instead of broken ML models
+Model Inference API - Uses trained ML models with physics-based fallback
 """
 import os
 import logging
+import numpy as np
+import pandas as pd
 from typing import Any, Dict, Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import realistic predictor
-try:
-    from synthetic_predictor import RealisticPredictor
-    HAS_REALISTIC_PREDICTOR = True
-except ImportError:
-    HAS_REALISTIC_PREDICTOR = False
-    logger.warning("Realistic predictor not available")
-
-# Try to import joblib and ML models (fallback)
+# Import joblib for ML models
 try:
     import joblib
     HAS_JOBLIB = True
 except ImportError:
     HAS_JOBLIB = False
-    logger.warning("joblib not installed - ML models disabled")
+    logger.error("joblib not installed - will use physics fallback")
+
+# Import physics-based fallback
+try:
+    from synthetic_predictor import RealisticPredictor
+    HAS_PHYSICS_FALLBACK = True
+except ImportError:
+    HAS_PHYSICS_FALLBACK = False
+    logger.warning("Physics fallback not available")
 
 try:
     from config_file import Config
@@ -37,67 +38,231 @@ except ImportError:
 
 class PredictiveMaintenanceInference:
     """
-    Handles predictions using realistic physics-based model
-    Falls back to ML if available and working
+    Handles predictions using trained ML models
+    Falls back to physics-based model if ML models fail
     """
     
     def __init__(self, model_dir: Optional[str] = None):
-        """Initialize inference engine"""
+        """Initialize inference engine and load models"""
         self.model_dir = model_dir or Config.MODEL_DIR
         self.models_loaded = False
+        self.use_fallback = False
         
-        # Use realistic predictor by default
-        if HAS_REALISTIC_PREDICTOR:
-            self.predictor = RealisticPredictor()
-            self.models_loaded = True
-            logger.info("✅ Using Realistic Physics-Based Predictor")
-        else:
-            self.predictor = None
-            logger.warning("⚠️ Realistic predictor not available")
-        
-        # ML models (optional fallback)
+        # Initialize ML models
         self.classifier = None
         self.regressor = None
         self.anomaly_detector = None
         self.scaler = None
         self.feature_columns = []
+        
+        # Initialize physics fallback
+        self.physics_predictor = None
+        if HAS_PHYSICS_FALLBACK:
+            try:
+                self.physics_predictor = RealisticPredictor()
+                logger.info("✅ Physics-based fallback initialized")
+            except Exception as e:
+                logger.warning(f"Could not initialize physics fallback: {e}")
+        
+        # Try to load trained ML models
+        self._load_models()
+    
+    def _load_models(self):
+        """Load trained ML models from disk"""
+        if not HAS_JOBLIB:
+            logger.warning("⚠️ joblib not available - will use physics fallback")
+            self.use_fallback = True
+            return
+        
+        try:
+            model_dir = self.model_dir
+            
+            # Check if models exist
+            if not os.path.exists(os.path.join(model_dir, 'classifier.pkl')):
+                logger.warning(f"⚠️ ML models not found in {model_dir} - will use physics fallback")
+                self.use_fallback = True
+                return
+            
+            # Load models
+            self.classifier = joblib.load(os.path.join(model_dir, 'classifier.pkl'))
+            self.regressor = joblib.load(os.path.join(model_dir, 'regressor.pkl'))
+            self.anomaly_detector = joblib.load(os.path.join(model_dir, 'anomaly_detector.pkl'))
+            self.scaler = joblib.load(os.path.join(model_dir, 'scaler.joblib'))
+            
+            # Load feature columns
+            with open(os.path.join(model_dir, 'feature_columns.txt'), 'r') as f:
+                self.feature_columns = [line.strip() for line in f.readlines()]
+            
+            self.models_loaded = True
+            logger.info(f"✅ ML models loaded successfully ({len(self.feature_columns)} features)")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load ML models: {e}")
+            logger.info("Will use physics-based fallback")
+            self.use_fallback = True
+            self.models_loaded = False
+    
+    def _engineer_features(self, raw_features: Dict) -> pd.DataFrame:
+        """
+        Convert 5 raw features into the 90+ engineered features expected by models
+        Uses defaults/approximations for missing historical data
+        """
+        # Start with raw features
+        features = {
+            'air_temperature': raw_features.get('air_temperature', 25.0),
+            'process_temperature': raw_features.get('process_temperature', 35.0),
+            'rotational_speed': raw_features.get('rotational_speed', 1500.0),
+            'torque': raw_features.get('torque', 40.0),
+            'tool_wear': raw_features.get('tool_wear', 100.0)
+        }
+        
+        # Add time features (use defaults since we don't have timestamp)
+        from datetime import datetime
+        now = datetime.now()
+        features['hour'] = now.hour
+        features['day_of_week'] = now.weekday()
+        features['day_of_month'] = now.day
+        features['shift_night'] = 1 if 22 <= now.hour or now.hour < 6 else 0
+        features['shift_day'] = 1 if 6 <= now.hour < 14 else 0
+        features['shift_evening'] = 1 if 14 <= now.hour < 22 else 0
+        
+        # Add rolling window features (use current values as approximation)
+        for sensor in ['air_temperature', 'process_temperature', 'rotational_speed', 'torque', 'tool_wear']:
+            val = features[sensor]
+            # 60min, 360min, 1440min windows - use current value with small noise
+            for window in ['60min', '360min', '1440min']:
+                features[f'{sensor}_mean_{window}'] = val
+                features[f'{sensor}_std_{window}'] = val * 0.05  # 5% std dev
+                features[f'{sensor}_max_{window}'] = val * 1.05
+                features[f'{sensor}_min_{window}'] = val * 0.95
+        
+        # Add lag features
+        for sensor in ['air_temperature', 'process_temperature', 'rotational_speed', 'torque', 'tool_wear']:
+            val = features[sensor]
+            features[f'{sensor}_lag1'] = val * 0.98
+            features[f'{sensor}_lag2'] = val * 0.96
+        
+        # Add diff features
+        for sensor in ['air_temperature', 'process_temperature', 'rotational_speed', 'torque', 'tool_wear']:
+            features[f'{sensor}_diff'] = 0.0  # No historical data, assume stable
+        
+        # Create dataframe with all expected columns
+        df = pd.DataFrame([features])
+        
+        # Ensure all model columns exist (fill missing with 0)
+        for col in self.feature_columns:
+            if col not in df.columns:
+                df[col] = 0.0
+        
+        # Return only columns the model expects, in correct order
+        return df[self.feature_columns]
     
     def predict_all(self, features: Any) -> Dict:
         """
-        Run all predictions using realistic predictor
+        Run predictions using ML models or physics fallback
         """
-        if self.predictor is None:
-            return {
-                'error': 'No predictor available',
-                'failure_prediction': {'failure_probability': 0.0},
-                'rul_prediction': {'predicted_rul_days': 0.0},
-                'anomaly_detection': {'is_anomaly': False},
-                'risk_level': 'UNKNOWN',
-                'recommendations': ['Predictor not initialized']
+        # Convert to dict if needed
+        if not isinstance(features, dict):
+            features = {
+                'air_temperature': float(features[0]) if len(features) > 0 else 25.0,
+                'process_temperature': float(features[1]) if len(features) > 1 else 35.0,
+                'rotational_speed': float(features[2]) if len(features) > 2 else 1500.0,
+                'torque': float(features[3]) if len(features) > 3 else 40.0,
+                'tool_wear': float(features[4]) if len(features) > 4 else 100.0
             }
         
-        try:
-            # Convert to dict if needed
-            if not isinstance(features, dict):
-                features = {
-                    'air_temperature': float(features[0]) if len(features) > 0 else 25.0,
-                    'process_temperature': float(features[1]) if len(features) > 1 else 35.0,
-                    'rotational_speed': float(features[2]) if len(features) > 2 else 1500.0,
-                    'torque': float(features[3]) if len(features) > 3 else 40.0,
-                    'tool_wear': float(features[4]) if len(features) > 4 else 100.0
-                }
-            
-            # Use realistic predictor
-            result = self.predictor.predict_all(features)
-            return result
-            
-        except Exception as e:
-            logger.error(f"Prediction error: {e}")
-            return {
-                'error': str(e),
-                'failure_prediction': {'failure_probability': 0.0},
-                'rul_prediction': {'predicted_rul_days': 0.0},
-                'anomaly_detection': {'is_anomaly': False},
+        # Try ML models first
+        if self.models_loaded and not self.use_fallback:
+            try:
+                return self._predict_with_ml(features)
+            except Exception as e:
+                logger.warning(f"ML prediction failed: {e}, falling back to physics")
+                self.use_fallback = True
+        
+        # Fall back to physics
+        if self.physics_predictor:
+            try:
+                result = self.physics_predictor.predict_all(features)
+                result['model_type'] = 'physics_fallback'
+                return result
+            except Exception as e:
+                logger.error(f"Physics fallback also failed: {e}")
+        
+        # No predictor available
+        return {
+            'error': 'No predictor available',
+            'failure_prediction': {'failure_probability': 0.0},
+            'rul_prediction': {'predicted_rul_days': 0.0},
+            'anomaly_detection': {'is_anomaly': False},
+            'risk_level': 'UNKNOWN',
+            'recommendations': ['No models available'],
+            'model_type': 'none'
+        }
+    
+    def _predict_with_ml(self, features: Dict) -> Dict:
+        """Run prediction using ML models"""
+        # Check if we need feature engineering
+        if len(self.feature_columns) > 5:
+            feature_df = self._engineer_features(features)
+        else:
+            # Simple 5-feature model
+            feature_df = pd.DataFrame([features])[self.feature_columns]
+        
+        # Scale features
+        X_scaled = self.scaler.transform(feature_df)
+        
+        # Run predictions
+        failure_prob = float(self.classifier.predict_proba(X_scaled)[0][1])
+        rul_days = float(self.regressor.predict(X_scaled)[0])
+        anomaly_score = float(self.anomaly_detector.score_samples(X_scaled)[0])
+        is_anomaly = anomaly_score < -0.3
+        
+        # Determine risk level
+        if failure_prob > 0.7 or rul_days < 3:
+            risk_level = 'CRITICAL'
+        elif failure_prob > 0.5 or rul_days < 7:
+            risk_level = 'HIGH'
+        elif failure_prob > 0.3 or rul_days < 14:
+            risk_level = 'MEDIUM'
+        else:
+            risk_level = 'LOW'
+        
+        # Generate recommendations
+        recommendations = []
+        if risk_level == 'CRITICAL':
+            recommendations.append('⚠️ URGENT: Schedule immediate maintenance')
+            recommendations.append('Consider shutting down machine for inspection')
+        elif risk_level == 'HIGH':
+            recommendations.append('⚠️ High failure risk - schedule maintenance within 48 hours')
+        elif risk_level == 'MEDIUM':
+            recommendations.append('Monitor closely and schedule maintenance within 1 week')
+        else:
+            recommendations.append('✅ Machine operating normally')
+        
+        if is_anomaly:
+            recommendations.append('⚠️ Anomaly detected in sensor readings')
+        
+        if rul_days < Config.RUL_ALERT_DAYS:
+            recommendations.append(f'⚠️ RUL below threshold ({rul_days:.1f} days remaining)')
+        
+        # Return structured result
+        return {
+            'failure_prediction': {
+                'failure_probability': failure_prob,
+                'will_fail': failure_prob > Config.FAILURE_THRESHOLD
+            },
+            'rul_prediction': {
+                'predicted_rul_days': rul_days,
+                'needs_maintenance_soon': rul_days < Config.RUL_ALERT_DAYS
+            },
+            'anomaly_detection': {
+                'anomaly_score': anomaly_score,
+                'is_anomaly': is_anomaly
+            },
+            'risk_level': risk_level,
+            'recommendations': recommendations,
+            'model_type': 'ml'
+        }
                 'risk_level': 'UNKNOWN',
                 'recommendations': [f'Prediction failed: {str(e)}']
             }
@@ -111,9 +276,11 @@ class PredictiveMaintenanceInference:
 try:
     inference_engine = PredictiveMaintenanceInference()
     if inference_engine.models_loaded:
-        logger.info("✅ Global inference engine initialized with realistic predictor")
+        logger.info("✅ Using trained ML models")
+    elif inference_engine.use_fallback:
+        logger.info("✅ Using physics-based fallback predictor")
     else:
-        logger.warning("⚠️ Inference engine created but predictor not loaded")
+        logger.warning("⚠️ No predictor available")
 except Exception as e:
     logger.warning(f"⚠️ Could not initialize inference engine: {e}")
     inference_engine = None
