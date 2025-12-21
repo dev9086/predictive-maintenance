@@ -39,8 +39,7 @@ def load_data():
         'Rotational speed [rpm]': 'rotational_speed',
         'Torque [Nm]': 'torque',
         'Tool wear [min]': 'tool_wear',
-        'Target': 'failure',
-        'Failure Type': 'failure_type'
+        'Machine failure': 'failure'
     }
     
     df = df.rename(columns=rename_map)
@@ -71,18 +70,19 @@ def prepare_data(df):
     return X, y_class, y_rul
 
 def train_models(X, y_class, y_rul):
-    """Train all models"""
+    """Train all models with anti-overfitting measures"""
     logger.info("=" * 60)
-    logger.info("Training Models")
+    logger.info("Training Models (Anti-Overfitting Configuration)")
     logger.info("=" * 60)
     
     # Split data
     X_train, X_test, y_class_train, y_class_test, y_rul_train, y_rul_test = train_test_split(
-        X, y_class, y_rul, test_size=0.2, random_state=42, stratify=y_class
+        X, y_class, y_rul, test_size=0.3, random_state=42, stratify=y_class
     )
     
     logger.info(f"Train: {len(X_train)} samples")
     logger.info(f"Test: {len(X_test)} samples")
+    logger.info(f"Failure rate (train): {y_class_train.mean():.2%}")
     
     # Scale features
     logger.info("\n1. Scaling features...")
@@ -90,30 +90,38 @@ def train_models(X, y_class, y_rul):
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
     
-    # 1. Classification Model
-    logger.info("\n2. Training failure classifier...")
+    # 1. Classification Model - SIMPLIFIED to prevent overfitting
+    logger.info("\n2. Training failure classifier (simplified)...")
     classifier = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=10,
-        min_samples_split=20,
-        min_samples_leaf=10,
+        n_estimators=50,           # Reduced from 100
+        max_depth=5,               # Reduced from 10 (shallower trees)
+        min_samples_split=50,      # Increased from 20 (more conservative splits)
+        min_samples_leaf=25,       # Increased from 10 (larger leaves)
+        max_features='sqrt',       # Use fewer features per tree
         class_weight='balanced',
-        random_state=42
+        random_state=42,
+        max_samples=0.7            # Bootstrap with 70% of data
     )
     classifier.fit(X_train_scaled, y_class_train)
     
     y_pred_class = classifier.predict(X_test_scaled)
+    y_pred_proba = classifier.predict_proba(X_test_scaled)[:, 1]
+    
     logger.info("\nClassification Report:")
     logger.info(f"\n{classification_report(y_class_test, y_pred_class)}")
+    logger.info(f"\nAverage failure probability on test set: {y_pred_proba.mean():.2%}")
+    logger.info(f"Should be close to actual failure rate: {y_class_test.mean():.2%}")
     
-    # 2. Regression Model (RUL)
-    logger.info("\n3. Training RUL regressor...")
+    # 2. Regression Model (RUL) - SIMPLIFIED
+    logger.info("\n3. Training RUL regressor (simplified)...")
     regressor = RandomForestRegressor(
-        n_estimators=100,
-        max_depth=10,
-        min_samples_split=20,
-        min_samples_leaf=10,
-        random_state=42
+        n_estimators=50,           # Reduced from 100
+        max_depth=5,               # Reduced from 10
+        min_samples_split=50,      # Increased from 20
+        min_samples_leaf=25,       # Increased from 10
+        max_features='sqrt',       # Use fewer features per tree
+        random_state=42,
+        max_samples=0.7            # Bootstrap with 70% of data
     )
     regressor.fit(X_train_scaled, y_rul_train)
     
@@ -123,13 +131,25 @@ def train_models(X, y_class, y_rul):
     logger.info(f"RUL MAE: {mae:.2f} days")
     logger.info(f"RUL RMSE: {rmse:.2f} days")
     
-    # 3. Anomaly Detector
-    logger.info("\n4. Training anomaly detector...")
+    # 3. Anomaly Detector - SIMPLIFIED
+    logger.info("\n4. Training anomaly detector (simplified)...")
     anomaly_detector = IsolationForest(
-        contamination=0.1,
+        contamination=0.05,        # Reduced from 0.1 (fewer false positives)
+        max_samples=256,           # Limit sample size
         random_state=42
     )
     anomaly_detector.fit(X_train_scaled)
+    
+    # Test on training data to check for overfitting
+    train_pred_proba = classifier.predict_proba(X_train_scaled)[:, 1]
+    logger.info(f"\n📊 Overfitting Check:")
+    logger.info(f"   Train avg failure prob: {train_pred_proba.mean():.2%}")
+    logger.info(f"   Test avg failure prob:  {y_pred_proba.mean():.2%}")
+    logger.info(f"   Actual failure rate:    {y_class_test.mean():.2%}")
+    if abs(train_pred_proba.mean() - y_pred_proba.mean()) < 0.05:
+        logger.info(f"   ✅ Good generalization (low overfitting)")
+    else:
+        logger.info(f"   ⚠️  May be overfitting")
     
     return classifier, regressor, anomaly_detector, scaler
 
