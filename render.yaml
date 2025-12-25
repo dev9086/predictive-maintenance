@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: predictive-maintenance-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DB_HOST
+        scope: RUN
+      - key: DB_PORT
+        value: "5432"
+        scope: RUN
+      - key: DB_NAME
+        scope: RUN
+      - key: DB_USER
+        scope: RUN
+      - key: DB_PASSWORD
+        scope: RUN
+      - key: MODEL_VERSION
+        value: "v1.0"
+        scope: RUN
+    healthCheckPath: /health
+    healthCheckTimeout: 300
+    preDeployCommand: "python src/init_db.py"
+    
+  - type: postgres
+    name: predictive-maintenance-db
+    ipAllowList: []
+    envVars:
+      - key: POSTGRES_DB
+        scope: RUN
+      - key: POSTGRES_USER
+        scope: RUN
+      - key: POSTGRES_PASSWORD
+        scope: RUN
