@@ -83,9 +83,16 @@ streamlit run src/streamlit_dashboard.py --server.port 8502
 
 ### Access
 
+**Local Development:**
 - **📊 Dashboard**: http://localhost:8502
 - **📚 API Docs**: http://127.0.0.1:8000/docs
 - **⚙️ OpenAPI**: http://127.0.0.1:8000/openapi.json
+
+**Deployed Services:**
+- **🚀 FastAPI Server**: https://predictive-maintenance-m3v9.onrender.com
+- **📚 API Documentation**: https://predictive-maintenance-m3v9.onrender.com/docs
+- **📊 Streamlit Dashboard**: https://huggingface.co/spaces/Dev9893/predictive-maintenance
+- **📈 Power BI Dashboard**: `machine1122.pbix`
 
 ## 📈 API Endpoints
 
