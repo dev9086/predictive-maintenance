@@ -1,0 +1,5 @@
+air_temperature
+process_temperature
+rotational_speed
+torque
+tool_wear

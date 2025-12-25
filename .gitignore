@@ -32,16 +32,24 @@ dist/
 .env
 .env.*
 
-# Data and model artifacts
-/data/
-/models/
-*.joblib
-*.pkl
-*.h5
+# Virtual Environment (DO NOT COMMIT)
+.venv/
+venv/
+env/
 
-# Notebooks and reports (optional)
-notebooks/
-reports/
+# Cache and temp files
+.cache/
+.pytest_cache/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
 
 # OS files
 .DS_Store

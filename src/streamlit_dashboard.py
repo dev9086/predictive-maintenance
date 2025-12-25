@@ -89,7 +89,7 @@ if mode == "Machine Dashboard":
     selected_name = st.sidebar.selectbox("Machine", list(machine_map.keys()))
     machine_id = machine_map[selected_name]
 
-        st.header(f"Machine: {selected_name}")
+    st.header(f"Machine: {selected_name}")
 
     # Latest readings
     st.subheader("Latest Sensor Reading")
