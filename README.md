@@ -57,14 +57,6 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Setup .env file with your database credentials
-# Create .env in project root with:
-# DB_HOST=your_host
-# DB_PORT=5432
-# DB_NAME=your_database
-# DB_USER=your_user
-# DB_PASSWORD=your_password
-
 # Initialize database
 python src/init_db.py
 ```
@@ -76,23 +68,19 @@ python src/init_db.py
 uvicorn src.fastapi_server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-**Terminal 2 - Streamlit Dashboard (Port 8502):**
-```bash
-streamlit run src/streamlit_dashboard.py --server.port 8502
-```
 
 ### Access
 
 **Local Development:**
-- **📊 Dashboard**: http://localhost:8502
+- **📊 Dashboard**: Streamlit dashboard upcoming
 - **📚 API Docs**: http://127.0.0.1:8000/docs
 - **⚙️ OpenAPI**: http://127.0.0.1:8000/openapi.json
 
 **Deployed Services:**
 - **🚀 FastAPI Server**: https://predictive-maintenance-m3v9.onrender.com
 - **📚 API Documentation**: https://predictive-maintenance-m3v9.onrender.com/docs
-- **📊 Streamlit Dashboard**: https://huggingface.co/spaces/Dev9893/predictive-maintenance
-- **📈 Power BI Dashboard**: `machine1122.pbix`
+- **📊 Streamlit Dashboard**:Streamlit dashboard upcoming
+- **📈 Power BI Dashboard**: `power bi dashboard`
 
 ## 📈 API Endpoints
 
@@ -130,10 +118,6 @@ curl -X POST "http://127.0.0.1:8000/predict" \
 
 ### GET /health
 Server health check
-
-```bash
-curl http://127.0.0.1:8000/health
-```
 
 ## 📂 Project Structure
 
